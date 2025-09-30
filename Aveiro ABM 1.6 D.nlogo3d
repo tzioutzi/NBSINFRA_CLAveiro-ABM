@@ -1,0 +1,2108 @@
+extensions [ gis ]
+
+globals [
+  ;; seasons ;;
+  season ; conditions of weather, temperature, humidity in different seasons of the year
+
+  ;; soil water retention variables ;;
+   soil_humidity
+   soil_suction ; related to soil humidity
+
+  ;; vegetation variables ;;
+   ntree_num  ; number of patches with trees of naturally green areas
+   nshrub_num ; number of patches with shrubs of naturally green areas
+   nveg_ratio ; ratio of trees over shrubs of naturally green areas
+   fshrub_num ; number of patches with vegetation of fluvial areas
+   utree_num  ; number of patches with trees of urban green areas
+   ushrub_num ; number of patches with shrubs of urban green areas
+   uveg_ratio ; ratio of trees over shrubs of urban green areas
+
+   flora ; IVI, composite index to monitor the diversity and density of flora species
+   veg_cover ; ratio between vegetation elements (vgts) and total area (patches)
+   ideal_veg ; intial IVI at tick 0, estimated at 79.33 for woody plants in urban green spaces by Muthulingam & Thangavel, 2012
+   current_regeneration_rate ; the regeneration rate of every tick, as defined by soil humidity and fertility
+   sfi ; soil fertility index calculated as: SFI= organic C% + pH adjusted from Panwar et al. 2011
+   ideal_sfi ;  soil fertility index for min carbon content 5% and max soil acidity 6.0
+   vegetation   ; composite index to monitor the condition of the flora and the soil fertility
+
+  ;; biodiversity variables ;;
+   flora_diversity ; Shannon's divesity index (H') -Σp*lnp (Morris et al. 2014) at the beginning of the simulation
+   fl_d ; Shannon's divesity index (H') at every tick
+   fauna_diversity ; correlated to flora_diversity and soil quality according to Qian 2007
+   fn_d ; fauna diversity at every tick
+   ideal_biodiversity ; ideal biodiversity value calculated at the begginging of the run
+   biodiversity ; total biodiversity performance index assessed in every tick
+
+  ;; community variables ;;
+   initial_community_index ; density of people attracted by culture and recreation at the beginning of the run
+   community_index ; density of people attracted by culture and recreation in every tick
+   community ; assessed community index (percentage difference form initial state) in every tick
+
+  ;; air quality variables ;;
+  air          ; composite index to monitor the quality of air (cooling + aqii)
+  air_sample ; total patches of atmosphere in contact with NBS area - sample for the assessment
+  cool_patches ; total patches of atmosphere in contact with vegetation agents (vgts)
+  aqii ; composite index Air Quality Impact Index (AQII) by Datta et al. 2021,
+       ;adjusted only for the physical characterisits of plants
+       ;assuming that all examined plants have similar Air Pollution Tolerance Index (API)
+  ideal_aqii ; reference AQII index for the specific NBS
+
+  ;;; ECOSYSYEM SERVICES ;;;
+regulating ; services that regulate the elements and functions of the examined ecosystem
+  erosion_control_value ;
+  gas_regulation_value ;
+  microclimate_regulation_value ;
+  nutrient_cycling_value ;
+  pollination_value ;
+  refugia_value ;
+  soil_formation_value ;
+  water_regulation_value ;
+  waste_treatment_value ;
+provisioning ; services that provide additional properties to the examined ecosystem
+  food_production_value ;
+  genetic_resources_value ;
+  raw_materials_value ;
+  water_supply_value ;
+cultural ; services that provide cultural, recreational, aesthetic aspects to the examined ecosystems
+  cultural_use_value ;
+  recreation_value ;
+
+  ;; BUTTONS, SWITCHES, AND SLIDERS ;;
+
+  ;; NBS Alternatives defined by the City Lab of Aveiro ;;
+  ; meander_restoration ; restore the stream's natural curves; leaky dams
+  ; retention_basins ; natural rainwater retention ponds in fluvial areas
+  ; green_enhancement ; planting native vegetation species (roots structures, filter pollutants); promotion of permeable pavements (in private property)
+  ; urban_agriculture ;  agricultural production, vegetable gardens
+
+  ; soil_temperature ; absolute temperature of soil as estimated per season
+  ; NBS_attractiveness ; quantitive estimation of attractiveness of local community to NBS infrastructure
+
+  ; flood ; switch to initiate the disruptive event of flood
+
+]
+
+breed [nvgts nvgt]
+breed [uvgts uvgt]
+breed [fvgts fvgt]
+breed [agrls agrl]
+breed [ppls ppl]
+breed [anms anm]
+
+patches-own
+[
+  is-natural?  ;whether a patch represents natural green surface
+  is-urban?    ;whether a patch represents urban green surface
+  is-fluvial?  ;whether a patch represents fluvial surface
+  is-agric?    ;whether a patch represents agricultutal surface
+  is-paved?    ;whether a patch represents paved surface
+  atmosphere?  ;whether a patch represents atmospheric volume
+
+; related to cultural / social aspects
+  hist-bld?   ;whether a patch represents a historical building
+
+; related to soil water retention
+  surface      ; composite index of surface characterisitcs (LID BMP parameter)
+               ; storage depth/berm height/barrel height, vegetation volume, surface roughness, surface slope
+  soil         ; composite index of soil characterisitcs (LID BMP parameter)
+               ; wilting point, humidity
+  soil_water_retention ; index combining both the surfance and soil indices
+  surface_roughness; 0.1 for soil and different vegetation roughness
+  ideal_roughness; 0.1 for RG
+  vegetation_volume ; average size of vegetation agents in radius 3 of the examined patch
+  ideal_vegetation_volume ;5/100 for RG
+  ideal_soil_humidity; 0.32 /32% for normal clay (Minnesota Stormwater Manual, 2022)
+  s_h; soil humidity of patches
+  max_soil_humidity; 0.45 for average normal clay
+  wilting_point; 0.20 minimum amount of water in the soil that the plant requires not to wilt
+  min_wilting_point; 0.15 for normal clay (Minnesota Stormwater Manual, 2022)
+  ideal_soil_suction ; max soil suction for 32% relative humidity in 25oC
+
+ ; related to vegetation
+  organic_content; percnetage of organic material in soil, necessary for the vegetation
+
+ ; related to air quality - cooling due to shading and evapotranspiration and reduction of the pollution levels
+  cooling    ; percentage of air patches with reduced temperature * mean temperature reduction
+  cool_dif ; absolute mean temperature difference during daytime determined by Kim et al. 2024
+
+]
+
+turtles-own
+[
+  aqii_habit ; subindex of tree habit, based on plant's appearance, growth form and architecture
+  aqii_canopy ; density of canopy structure: sparse-semidense-dense
+  aqii_leaf ; Leaf Area Index (LAI) for each species
+
+  original_size ; the reference size of vegetation agents at the beginning of the run
+]
+
+to setup
+  clear-all
+  import-pcolors "background.png"
+  setup-model
+  setup-vegetation
+  setup-soil-water-retention
+  setup-community
+  setup-fauna
+  setup-biodiversity
+  setup-NBS_alternatives
+  reset-ticks
+
+end
+
+to go
+  seasons_change
+  assess-soil-water-retention
+  assess-vegetation
+  assess-biodiversity
+  assess-community
+  assess-air
+  assess-ES
+
+  if flood = true
+    [toflood
+     if flood = false
+        [retain_water
+         recover_flood_ecosystem]]
+
+
+
+  tick
+
+  if ticks >= 12
+    [stop]
+
+end
+
+;;; SETUP PROCEDURES ;;;  SETUP PROCEDURES ;;;  SETUP PROCEDURES ;;;
+
+to setup-model
+
+  ask patches
+    [set is-natural? false
+     set is-fluvial? false
+     set atmosphere? false]
+
+;; setup natural green ;;
+  ask patches with [pcolor > 0 and pcolor <= 5.5]
+    [set is-natural? true
+     set is-paved? false
+     set pcolor green] ; green = 55
+
+;; setup urban green ;;
+  ask patches with [pcolor > 5.5 and pcolor <= 7.5]
+    [set is-urban? true
+     set is-paved? false
+     set pcolor 57]
+
+;; setup agricultural land ;;
+  ask patches with [pcolor > 38 and pcolor < 39]
+    [set is-agric? true
+     set is-paved? false
+     set pcolor 37]
+
+;; setup built environment ;;
+  ask patches with [pcolor >= 9 and pcolor < 10]
+    [ask patches with [pxcor = [pxcor] of myself and pycor = [pycor] of myself and pzcor = 1 ]
+      [set is-natural? false
+       set is-paved? true
+       set pcolor grey]]
+
+  ask patches with [pcolor != 55 and pcolor != 57 and pcolor != 37 and pzcor = 0]
+    [set is-natural? false
+     set is-paved? true
+     set pcolor grey]
+
+;; setup atmosphere ;;
+  ask patches with [pzcor > 0]
+    [set atmosphere? true]
+
+;; setup contours ;;
+  ask patches with [pxcor >= -26 and pxcor <= -22 and
+                    pycor >= 12 and pycor <= 30 and
+                    pzcor = 0 and
+                    is-paved? = false ]
+   [ask patches with [pxcor = [pxcor] of myself and
+                      pycor = [pycor] of myself and
+                      pzcor = -1 ]
+         [set pcolor [pcolor] of myself]
+    set pcolor 0
+    set atmosphere? true]
+
+  ask patches with [pxcor >= -21 and pxcor <= -15 and
+                    pycor >= 12 and pycor <= 16 and
+                    pzcor = 0 and
+                    is-natural? = true]
+   [ask patches with [pxcor = [pxcor] of myself and
+                      pycor = [pycor] of myself and
+                      pzcor = -1 ]
+         [set pcolor [pcolor] of myself]
+      set pcolor 0
+      set atmosphere? true]
+
+   ask (patch-set patch -14 8 0 patch 11 -22 0 patch 12 -20 0)
+   [ask patches with [pxcor = [pxcor] of myself and
+                      pycor = [pycor] of myself and
+                      pzcor = -1 ]
+         [set pcolor [pcolor] of myself]
+      set pcolor 0
+      set atmosphere? true]
+
+  ask patches with [pxcor >= -17 and pxcor <= -12 and
+                   pycor >= -6 and pycor <= 11 and
+                   pzcor = 0 and
+                   is-natural? = true]
+   [ask patches with [pxcor = [pxcor] of myself and
+                      pycor = [pycor] of myself and
+                      pzcor = -1 ]
+         [set pcolor [pcolor] of myself]
+      set pcolor 0
+      set atmosphere? true]
+
+
+  ask patches with [pxcor >= 10 and pxcor <= 17  and
+                    pycor >= -27 and pycor <= -16 and
+                    pzcor = 0 and
+                    is-natural? = true]
+   [ask patches with [pxcor = [pxcor] of myself and
+                      pycor = [pycor] of myself and
+                      pzcor = -1 ]
+         [set pcolor [pcolor] of myself]
+     set pcolor 0
+     set atmosphere? true]
+
+  ask patches with [pcolor = green and pzcor = -1]
+    [set is-natural? true
+     set is-paved? false]
+
+  ask patches with [pcolor = 57 and pzcor = -1]
+    [set is-urban? true
+     set is-paved? false]
+
+  ask patches with [pcolor = 37 and pzcor = -1]
+    [set is-agric? true
+     set is-paved? false]
+
+ ;; setup fluvial areas ;;
+  ask (patch-set  patch -24 30 -1 patch -24 29 -1 patch -24 28 -1 patch -24 27 -1 patch -23 26 -1 patch -23 25 -1 patch -24 24 -1 patch -24 23 -1 patch -24 22 -1
+                  patch -25 21 -1 patch -26 20 -1 patch -26 19 -1 patch -25 18 -1 patch -25 17 -1 patch -25 16 -1 patch -24 15 -1
+                  patch -23 14 -1 patch -22 14 -1 patch -21 14 -1 patch -20 14 -1 patch -19 14 -1 patch -18 14 -1
+                  patch -17 14 -1 patch -17 13 -1 patch -16 12 -1 patch -16 11 -1 patch -16 10 -1 patch -16 9 -1
+                  patch -15 8 -1 patch -15 7 -1 patch -14 6 -1 patch -14 5 -1 patch -13 4 -1 patch -13 3 -1 patch -13 2 -1
+                  patch -13 1 -1 patch -13 0 -1)
+      [set pcolor cyan
+       set is-fluvial? true]
+
+   ask (patch-set patch 11 -19 -1 patch 11 -20 -1 patch 11 -21 -1 patch 12 -21 -1 patch 13 -21 -1 patch 14 -21 -1
+                  patch 15 -22 -1 patch 16 -23 -1 patch 17 -24 -1 patch 17 -25 -1 patch 17 -26 -1)
+      [set pcolor cyan
+       set is-fluvial? true]
+
+
+end
+
+to setup-vegetation
+
+  ;;; natural green ;;;
+  set ntree_num 60
+  set nshrub_num ntree_num
+  set nveg_ratio 2
+  let ntrees n-of ntree_num patches with [is-natural? = true]
+  ask ntrees
+    [sprout-nvgts 1 [set color green
+                     set zcor [pzcor] of myself + size
+                     set shape "circle"
+                     set size (random-normal 0.719 0.09)]] ; mean size and sd adapted from Tarrega et al. (2011)
+  ask ntrees
+    [let nshrubs n-of nshrub_num other patches with [is-natural? = true]
+     ask nshrubs
+         [sprout-nvgts nveg_ratio [set color green
+                                   set shape "circle"
+                                   set size (random-normal 0.24 0.03)
+                                   set zcor [pzcor] of myself + size + 0.3
+                                   forward 0.5]]]
+
+  ;;; urban green ;;;
+  set utree_num 50
+  set ushrub_num utree_num
+  set uveg_ratio 2
+  let utrees n-of utree_num patches with [pcolor = 57]
+  ask utrees
+    [sprout-uvgts 1 [set color green
+                     set zcor [pzcor] of myself + size
+                     set shape "circle"
+                     set size (random-normal 0.719 0.09) ]]
+
+ ask utrees
+    [let ushrubs n-of ushrub_num other patches with [pcolor = 57]
+     ask ushrubs
+         [sprout-nvgts uveg_ratio [set color green
+                                   set shape "circle"
+                                   set size (random-normal 0.24 0.03)
+                                   set zcor [pzcor] of myself + size + 0.3
+                                   forward random-float 0.5]]]
+
+  ;;; fluvial green ;;;
+  set fshrub_num 3
+  let fshrubs patches with [is-fluvial? = true]
+  ask fshrubs
+        [sprout-fvgts fshrub_num [set color cyan
+                                  set shape "circle"
+                                  set size (random-normal 0.24 0.03)
+                                  set zcor [pzcor] of myself + size + 0.3
+                                  forward random-float 0.5]]
+
+ ;;; agricultural land ;;;
+  ask patches with [is-agric? = true and
+                    count (neighbors4 with [is-agric? = true]) > 1]
+        [sprout-agrls 3 [set color 57
+                         set shape "circle"
+                         set size (random-normal 0.24 0.03)
+                         set zcor [pzcor] of myself + size + 0.3
+                         forward random-float 0.5]]
+
+end
+
+to setup-soil-water-retention
+
+  ask patches with [pcolor != 0]
+  [set ideal_vegetation_volume 0.05
+   set ideal_roughness 0.1
+   set ideal_soil_humidity 0.32
+   set s_h ideal_soil_humidity
+   set soil_humidity mean [s_h] of patches with [pcolor != 0 and pycor > 0 and pycor < 40 and pxcor < 0 and pxcor > -32] ;set this variable to specific number for quick runs
+   set max_soil_humidity 0.40
+   set min_wilting_point 0.15
+   set ideal_soil_suction -0.00001 * ((8.314 * 298)/ 1 * 18.016) * ln(0.32)]
+
+ifelse soil_humidity != 0
+  [set soil_suction -0.00001 * ((8.314 * soil_temperature)/ 1 * 18.016) * ln(soil_humidity)]
+  [set soil_suction -0.00001 * (8.314 * soil_temperature)/ 1 * 18.016 ]
+
+ ask patches with [pzcor = 0]
+    [ifelse any? turtles-here
+      [set vegetation_volume mean [size] of (turtle-set nvgts uvgts fvgts agrls) in-radius 1]
+      [set vegetation_volume 0]]
+
+ ask patches
+     [ifelse vegetation_volume > 0.001
+        [set surface_roughness vegetation_volume ]
+        [set surface_roughness 0.10]  ]
+
+  ask patches with [is-natural? = true]
+      [set organic_content 28]
+  ask patches with [is-urban? = true]
+     [set organic_content 8]
+  ask patches with [is-agric? = true]
+     [set organic_content 6]
+  ask patches with [is-fluvial? = true]
+     [set organic_content 10]
+
+end
+
+to setup-community
+
+ ;; historical buildings ;;
+  ask patches with [pzcor = 1]
+    [set hist-bld? false]
+
+  ask patches with [pzcor = 1 and
+                    pxcor > -10 and pxcor < 10 and
+                    pycor > 0 and pycor < 50 and
+                    is-paved? = true ]
+  [;set pcolor orange
+   set hist-bld? true]
+
+ ask patches with [pzcor = 1 and
+                    pxcor > -20 and pxcor < -12 and
+                    pycor > -10 and pycor < 30 and
+                    is-paved? = true ]
+  [;set pcolor orange
+   set hist-bld? true]
+
+  ask patches with [pzcor = 1 and
+                    pxcor > 20 and pxcor < 40 and
+                    pycor > -20 and pycor < -5 and
+                    is-paved? = true ]
+  [;set pcolor orange
+   set hist-bld? true]
+
+  ask patches with [pzcor = 1 and
+                    pxcor > -30 and pxcor < -15 and
+                    pycor > -20 and pycor < -5 and
+                    is-paved? = true ]
+  [;set pcolor orange
+   set hist-bld? true]
+
+;; community agents ;;
+  ask patches with [hist-bld? = true and count (neighbors with [pzcor = 0 and is-paved? = false]) > 4]
+      [sprout-ppls 1 [set color orange
+                      set zcor [pzcor] of myself
+                      set shape "square"
+                      set size 0.10
+                      forward 1]]
+
+  ask patches with [is-fluvial? = true and count (neighbors with [is-paved? = false]) > 4]
+      [ifelse NBS_attractiveness <= 0.50
+           [sprout-ppls 1 [set color orange
+                           set zcor [pzcor] of myself
+                           set shape "square"
+                           set size 0.10
+                           forward 0.50]]
+           [sprout-ppls 2 [set color orange
+                           set zcor [pzcor] of myself
+                           set shape "square"
+                           set size 0.10
+                           forward 1]]  ]
+
+  set initial_community_index count ppls / count patches with [pcolor != 0]
+
+end
+
+to setup-fauna
+
+  create-anms 16 * (count nvgts with [size > 2 ])  ; nest per tree density from Alonso et al. 1991
+         [set color yellow
+          set size random-float 0.3
+          setxyz random-xcor random-ycor -2]
+
+  create-anms 2.75 * (count nvgts with [size <= 2 and size > 0.5 ])  ; nest per tree density from Alonso et al. 1991
+         [set color yellow
+          set size random-float 0.5
+          setxyz random-xcor random-ycor -3]
+
+  create-anms 2.75 * (count uvgts with [size <= 2 and size > 0.5 ])  ; nest per tree density from Alonso et al. 1991
+         [set color yellow
+          set size random-float 0.5
+          setxyz random-xcor random-ycor -3]
+
+  create-anms 3 * (count fvgts with [size >= 0.20 ])
+         [set color yellow
+          set size random-float 0.5
+          setxyz random-xcor random-ycor -3]
+
+  create-anms 1 * (count agrls with [size >= 0.30 ])
+         [set color yellow
+          set size random-float 0.5
+          setxyz random-xcor random-ycor -3]
+
+end
+
+to setup-biodiversity
+
+   let floral_agents (turtle-set nvgts fvgts uvgts agrls)
+   ask turtles
+       [let diversity_1 (count nvgts with [size <= 0.30] / count floral_agents) ; Shannon's divesity index (H') in Morris et al. 2014
+        let diversity_2 (count nvgts with [size > 0.30] / count floral_agents)
+        let diversity_3 (count fvgts / count floral_agents)
+        let diversity_4 (count uvgts with [size <= 0.70] / count floral_agents)
+        let diversity_5 (count uvgts with [size > 0.70] / count floral_agents)
+        let diversity_6 (count agrls / count floral_agents)
+
+        set flora_diversity -1 * diversity_1 * ln diversity_1 + -1 * diversity_2 * ln diversity_2 +
+                            -1 * diversity_3 * ln diversity_3 + -1 * diversity_4 * ln diversity_4 +
+                            -1 * diversity_5 * ln diversity_5]
+
+  ask anms
+     [let diversity_7 (count anms / count anms) ; Shannon's divesity index (H') in Morris et al. 2014
+      set fauna_diversity -1 * diversity_7 * ln diversity_7 ]
+
+   set ideal_biodiversity flora_diversity + fauna_diversity
+
+end
+
+to setup-NBS_alternatives
+
+  if meander_restoration = true
+
+      [ask patches with [is-natural? = true and
+                         count (neighbors4 with [is-natural? = true and pzcor = -1]) > 3 and
+                         pzcor = -1 and
+                         pycor > 0]
+         [set pcolor cyan
+          set is-fluvial? true]
+
+       ask patches with [is-urban? = true and
+                         count (neighbors4 with [is-paved? = false and pzcor = -1]) > 3 and
+                         pzcor = -1 and
+                         pycor > 0 ]
+         [set pcolor cyan
+          set is-fluvial? true]]
+
+  if retention_basins = true
+
+      [ask patch -17 14 -1
+         [ask patches in-radius 3 with [pzcor = -1 and is-paved? = false]
+             [set pcolor cyan
+              set is-fluvial? true]]
+
+        ask patch -13 3 -1
+                  [ask neighbors with [pzcor = -1]
+             [set pcolor cyan
+              set is-fluvial? true]]
+
+        ask patch -22 26 -1
+             [set pcolor cyan
+              set is-fluvial? true]
+
+        ask (patch-set patch -21 26 0 patch -20 26 0 patch -20 25 0 patch -20 27 0 patch -19 26 0 patch -19 25 0 patch -19 27 0 patch -18 25 0 patch -18 26 0)
+              [ask patches with [pxcor = [pxcor] of myself and
+                                 pycor = [pycor] of myself and
+                                 pzcor = -1 ]
+                      [set pcolor cyan
+                       set is-fluvial? true]
+          set pcolor 0
+          set atmosphere? true]]
+
+  if green_enhancement = true
+
+      [ask patches with [pzcor = -1 and pycor > 0 and pcolor != 0]
+        [ask patches in-radius 2 with [pzcor = 0 and pcolor != 0]
+           [set is-natural? true
+            set pcolor green
+            sprout-nvgts nveg_ratio [set color green
+                                     set shape "circle"
+                                     set size (random-normal 0.20 0.03)
+                                     set zcor [pzcor] of myself + size + 0.20
+                                     forward 0.50]]] ]
+
+  if urban_agriculture = true
+
+      [ask n-of 50 patches with [is-agric? = true and pycor > 0]
+        [sprout-agrls 3 [set color 57
+                         set shape "circle"
+                         set size (random-normal 0.10 0.03)
+                         set zcor [pzcor] of myself + size + 0.4
+                         forward random-float 0.5]] ]
+
+end
+
+;;; ASSESSMENT PROCEDURES ;;;  ASSESSMENT PROCEDURES ;;;  ASSESSMENT PROCEDURES ;;;
+
+to seasons_change
+
+  if ticks <= 3 ; normal spring
+    [set season "spring"
+      ask patches with [is-natural? = true]
+        [sprout-ppls count patches with [is-fluvial? = true]
+            [set color orange
+             set shape "square"
+            set size 0.10] ]]
+
+  if ticks > 3 and ticks <= 6 ; hot and dry summer
+    [set season "summer"
+      ask patches with [is-natural? = true]
+        [sprout-ppls count patches with [is-fluvial? = true]
+            [set color orange
+             set shape "square"
+            set size 0.10] ]
+      ask patches with [is-paved? = false and pcolor != 0]
+        [set soil_temperature 305
+         set s_h 0.20]
+      ask patches with [is-paved? = true]
+        [set soil_temperature 313
+         set s_h 0.15] ]
+
+  if ticks > 6 and ticks <= 9 ; normal autumn
+    [set season "automn"
+      ask n-of count patches with [is-fluvial? = true] ppls
+        [die]
+      ask patches with [pcolor != 0]
+        [set soil_temperature soil_temperature - 6
+         set s_h s_h + 0.10 ] ]
+
+  if ticks > 9 and ticks <= 12 ; normal winter
+    [set season "winter"
+       ask n-of count patches with [is-fluvial? = true] ppls
+        [die]
+      ask patches with [pcolor != 0]
+        [set soil_temperature 298
+         set s_h 0.32 ]]
+
+end
+
+to assess-soil-water-retention
+
+    ask patches with [ideal_vegetation_volume > 0]
+       [set surface (((vegetation_volume - ideal_vegetation_volume)/ ideal_vegetation_volume) / 2 +
+                     ((surface_roughness - ideal_roughness) / ideal_roughness) / 2 ) * 100
+
+        set soil (((max_soil_humidity - s_h) / ideal_soil_humidity) / 3 +
+                  ((s_h - min_wilting_point ) / min_wilting_point) / 3 +
+                  ((soil_suction) / ideal_soil_suction) / 3 ) * 100 ]
+
+  ask patches
+    [set soil_water_retention (surface / 2) + (soil / 2)]
+
+end
+
+to assess-vegetation
+
+  ask patches with [atmosphere? = false]
+    [ifelse organic_content > 1 ;and soil_humidity > 0 min_wilting_point and soil_humidity < max_soil_humidity
+       [set sfi (organic_content / 100) + (soil_humidity / min_wilting_point) + (max_soil_humidity / soil_humidity)] ;average soil pH at 6.5
+       [set sfi 0]
+     set ideal_sfi 21.785 + (32 / 15) + (60 / 32)] ;21.785 :mean [organic_content] of patches of the ground
+
+     set veg_cover count (turtle-set nvgts fvgts uvgts) / count patches with [pzcor = 0]
+
+  if ticks = 1
+     [set ideal_veg count patches with [is-natural? ] * 3 / count patches with [pzcor = 0] ]
+   if ideal_veg > 0 ;; set a standard ideal_veg for this type of city
+     [set flora (veg_cover - ideal_veg) / ideal_veg] ;
+
+   let sfi_perf (sfi - ideal_sfi / ideal_sfi)
+   set vegetation flora + sfi_perf
+
+end
+
+to assess-biodiversity
+
+  ask (turtles)
+       [let diversity_1 (count nvgts with [size <= 0.30] / count turtles) ; Shannon's divesity index (H') in Morris et al. 2014
+        let diversity_2 (count nvgts with [size > 0.30] / count turtles)
+        let diversity_3 (count fvgts / count turtles)
+        let diversity_4 (count uvgts with [size <= 0.70] / count turtles)
+        let diversity_5 (count uvgts with [size > 0.70] / count turtles)
+
+        set fl_d -1 * diversity_1 * ln diversity_1 + -1 * diversity_2 * ln diversity_2 +
+                 -1 * diversity_3 * ln diversity_3 + -1 * diversity_4 * ln diversity_4 +
+                 -1 * diversity_5 * ln diversity_5]
+
+  set fn_d (fl_d * 0.80) + (mean [soil] of patches * 0.20)
+  set biodiversity ((fl_d + fn_d) - ideal_biodiversity ) / ideal_biodiversity
+
+end
+
+to assess-community
+
+ set community_index count ppls / count patches with [pcolor != 0]
+ set community (community_index - initial_community_index)/ initial_community_index
+
+end
+
+to assess-air
+  let vgts (turtle-set nvgts fvgts uvgts)
+
+  set ideal_aqii count vgts * (2 + 1.8 + 3)
+
+  ask patches with [atmosphere? = true]
+      [set air_sample count patches with [atmosphere? = true and pzcor <= 5 and pycor >= 0 and pcolor = 0]]
+
+  set cool_patches count patches with [atmosphere? = true and any? nvgts-here = true or any? uvgts-here = true or any? fvgts-here = true] * 8 * mean [size] of vgts
+
+  ask patches with [atmosphere? = true]
+        [set cooling (cool_patches / air_sample) * 1.5 * 100]
+
+  ask vgts
+    [set aqii mean [aqii_habit] of vgts + mean [aqii_canopy] of vgts + 3
+     set air ((aqii - ideal_aqii) / ideal_aqii) + (cooling)]
+
+end
+
+to assess-ES
+  let vgts (turtle-set nvgts fvgts uvgts)
+
+  ifelse erosion_control = true
+    [set erosion_control_value mean [soil_water_retention] of patches ]
+    [set erosion_control_value 0]
+  ifelse gas_regulation = true
+    [set gas_regulation_value aqii]
+    [set gas_regulation_value 0 ]
+  ifelse microclimate_regulation = true
+    [set microclimate_regulation_value mean [cooling] of patches ]
+    [set microclimate_regulation_value 0]
+  ifelse nutrient_cycling = true
+    [set nutrient_cycling_value (sfi - ideal_sfi / ideal_sfi)] ;soil reftility perfomance
+    [set nutrient_cycling_value 0]
+  ifelse pollination = true
+    [set pollination_value (cool_patches / count patches with [is-natural? = true and any? neighbors with [atmosphere? = true]]) ]
+    [set pollination_value 0]
+  ifelse refugia = true
+    [set refugia_value 1 * (count anms / count patches with [is-natural? = true and any? neighbors with [atmosphere? = true]]) ]
+    [set refugia_value 0]
+  ifelse soil_formation = true
+    [set soil_formation_value mean [soil] of patches]
+    [set soil_formation_value 0]
+  ifelse water_regulation = true
+    [set water_regulation_value 0.10 * abs ((mean [soil_suction] of patches - mean [ideal_soil_suction] of patches) / mean [ideal_soil_suction] of patches) ]
+    [set water_regulation_value 0]
+  ifelse waste_treatment = true
+    [set waste_treatment_value (-0.010 * count anms / count patches with [is-natural? = true and any? neighbors with [atmosphere? = true]]) + (-0.010 * count vgts * mean [size] of vgts)]
+    [set waste_treatment_value 0]
+
+  set regulating (erosion_control_value + gas_regulation_value + microclimate_regulation_value + nutrient_cycling_value + pollination_value + refugia_value + soil_formation_value + water_regulation_value + waste_treatment_value) / 9 ; average of all regulating services
+
+  ifelse food_production = true
+    [set food_production_value 0.1 * count agrls * mean [size] of agrls]
+    [set food_production_value 0]
+  ifelse genetic_resources = true
+    [set genetic_resources_value (0.001 * count vgts) + (0.001 * count anms)]
+    [set genetic_resources_value 0]
+  ifelse raw_materials_value = true
+    [set raw_materials_value 0.1 * count vgts]
+    [set raw_materials_value 0]
+  ifelse water_supply = true
+    [set water_supply_value (- 0.010 * count patches with [is-natural? = true and any? neighbors with [atmosphere? = true]]) ]
+    [set water_supply_value 0]
+
+  set provisioning (food_production_value + genetic_resources_value + raw_materials_value + water_supply_value) / 4 ; average of all provisioning services
+
+  ifelse cultural_use = true
+    [set cultural_use_value 0.10 * usage_level * count ppls ]
+    [set cultural_use_value 0]
+  ifelse recreation = true
+    [set recreation_value 0.10 * satisfaction_level * count ppls]
+    [set recreation_value 0]
+
+  set cultural (cultural_use_value + recreation_value) / 2 ; average of all cultural services
+
+end
+
+;;; NORMAL PROCEDURES OF NBS ;;; NORMAL PROCEDURES OF NBS;;;  NORMAL PROCEDURES OF NBS;;;
+
+to retain_water
+
+  ask patches with [pcolor != 0]
+   [if any? patches with [s_h > ideal_soil_humidity]
+     [ask patches with [is-natural? = true or is-fluvial? = true or is-urban? = true or is-agric? = true]
+        [set s_h s_h * (1 - soil_suction)]
+
+      ask patches with [is-paved? = true]
+        [set s_h s_h * (1 - soil_suction / 2)]]]
+
+       ask patches with [pcolor != 0]
+     [if s_h > ideal_soil_humidity
+        [set pcolor (s_h * 100) + 60]]
+
+  ask patches with [is-paved? = false and pcolor != 0]
+     [if not any? patches with [s_h > ideal_soil_humidity]
+        [set s_h ideal_soil_humidity]]
+
+end
+
+to recover_flood_ecosystem
+
+  ask patches with [pzcor = -1 and pycor > 0]
+     [ask neighbors with [is-natural? = true]
+         [sprout-uvgts (1 - (s_h - ideal_soil_humidity))  [set color green
+                                                           set zcor [pzcor] of myself + size
+                                                           set shape "circle"
+                                                           set size (random-normal 0.719 0.09) ]
+          sprout-anms 1  [set color yellow
+                          set size random-float 0.5
+                          setxyz random-xcor random-ycor -3]]
+
+
+     ask neighbors with [is-urban? = true]
+         [sprout-uvgts (1 - (s_h - ideal_soil_humidity))  [set color green
+                                                           set zcor [pzcor] of myself + size
+                                                           set shape "circle"
+                                                           set size (random-normal 0.719 0.09) ]]
+
+     ask neighbors with [is-fluvial? = true]
+          [sprout-fvgts (1 - (s_h - ideal_soil_humidity)) [set color cyan
+                                                           set shape "circle"
+                                                           set size (random-normal 0.24 0.03)
+                                                           set zcor [pzcor] of myself + size + 0.3
+                                                           forward random-float 0.5]
+           sprout-anms 1  [set color yellow
+                           set size random-float 0.5
+                           setxyz random-xcor random-ycor -3]]]
+
+  if any? patches with [pzcor = -1 and pycor > 0 and s_h = ideal_soil_humidity]
+        [create-ppls (count patches with [pzcor = -1 and pycor > 0 and s_h = ideal_soil_humidity]) [set color orange
+                                                                                             forward 1]]
+
+end
+
+;;; DISRUPTIVE EVENTS ;;; DISRUPTIVE EVENTS ;;; DISRUPTIVE EVENTS ;;;
+
+to toflood
+
+ if flood = true and ticks = 6
+  [ask patches with [pzcor = -1 and pycor > 0]
+    [set s_h 1
+     ask neighbors with [pzcor = 0 and pcolor != 0]
+          [set s_h 0.60
+           ask nvgts-here [die]
+           ask fvgts-here [die]
+           ask anms-here [die]
+           ask ppls-here [die] ]]  ]
+
+  if flood = true and ticks > 6
+    [set flood false]
+
+
+end
+@#$#@#$#@
+GRAPHICS-WINDOW
+0
+0
+841
+1136
+-1
+-1
+7.0
+1
+10
+1
+1
+1
+0
+1
+1
+1
+-59
+59
+-80
+80
+-3
+16
+1
+0
+1
+ticks
+30.0
+
+BUTTON
+6
+10
+61
+43
+setup
+setup
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+65
+10
+122
+43
+go once
+go
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+TEXTBOX
+297
+138
+441
+156
+NBS alternatives
+14
+0.0
+1
+
+TEXTBOX
+297
+10
+447
+44
+Disruptive events \n/ stresses
+14
+0.0
+1
+
+SWITCH
+297
+164
+444
+197
+meander_restoration
+meander_restoration
+1
+1
+-1000
+
+SWITCH
+297
+200
+444
+233
+retention_basins
+retention_basins
+1
+1
+-1000
+
+SWITCH
+297
+237
+444
+270
+green_enhancement
+green_enhancement
+1
+1
+-1000
+
+SWITCH
+297
+274
+444
+307
+urban_agriculture
+urban_agriculture
+1
+1
+-1000
+
+MONITOR
+185
+11
+253
+52
+season
+season
+0
+1
+10
+
+TEXTBOX
+8
+54
+118
+72
+Properties of soil
+12
+0.0
+1
+
+MONITOR
+9
+73
+89
+114
+soil humidity
+soil_humidity
+2
+1
+10
+
+SLIDER
+98
+73
+236
+106
+soil_temperature
+soil_temperature
+243
+350
+298.0
+1
+1
+K
+HORIZONTAL
+
+BUTTON
+126
+11
+181
+44
+go
+go
+T
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+MONITOR
+9
+117
+89
+162
+surface (%)
+mean [surface] of patches with [is-natural? = true]
+3
+1
+11
+
+MONITOR
+98
+118
+174
+163
+soil (%)
+mean [soil] of patches
+3
+1
+11
+
+TEXTBOX
+11
+169
+161
+187
+Properties of vegetation
+12
+0.0
+1
+
+MONITOR
+9
+188
+99
+233
+soil fertility (%)
+(sfi - ideal_sfi / ideal_sfi)
+3
+1
+11
+
+MONITOR
+111
+188
+199
+233
+flora index (%)
+flora
+3
+1
+11
+
+TEXTBOX
+11
+240
+161
+258
+Properties of biodiversity
+12
+0.0
+1
+
+MONITOR
+10
+259
+102
+304
+flora diverisity
+fl_d
+3
+1
+11
+
+MONITOR
+108
+259
+204
+304
+fauna diveristy
+fn_d
+3
+1
+11
+
+TEXTBOX
+11
+311
+212
+341
+Properties of community activity
+12
+0.0
+1
+
+SLIDER
+10
+331
+148
+364
+NBS_attractiveness
+NBS_attractiveness
+0
+1
+0.5
+.1
+1
+NIL
+HORIZONTAL
+
+MONITOR
+153
+331
+258
+376
+community index
+community / 1000
+3
+1
+11
+
+PLOT
+9
+393
+470
+597
+Performance scores
+time
+(%)
+0.0
+12.0
+-10.0
+10.0
+true
+true
+"" ""
+PENS
+"0" 1.0 0 -16777216 false "" "plot 0"
+"soil retention" 1.0 0 -6459832 true "" "plot mean [soil_water_retention] of patches"
+"vegeation" 1.0 0 -10899396 true "" "plot vegetation"
+"biodiversity" 1.0 0 -955883 true "" "plot biodiversity"
+"community" 1.0 0 -13345367 true "" "plot community"
+
+MONITOR
+473
+400
+552
+441
+soil retention
+mean [soil_water_retention] of patches
+3
+1
+10
+
+MONITOR
+474
+448
+552
+489
+vegetation
+vegetation
+3
+1
+10
+
+MONITOR
+473
+496
+551
+537
+biodiversity
+biodiversity
+3
+1
+10
+
+MONITOR
+473
+543
+551
+584
+community
+community / 1000
+3
+1
+10
+
+SWITCH
+298
+56
+426
+89
+flood
+flood
+1
+1
+-1000
+
+TEXTBOX
+675
+10
+825
+28
+Ecosystem Services
+14
+0.0
+1
+
+TEXTBOX
+598
+39
+723
+57
+Regulating services
+12
+0.0
+1
+
+TEXTBOX
+755
+39
+905
+57
+Provisioning services
+12
+0.0
+1
+
+TEXTBOX
+768
+217
+918
+235
+Cultural services
+12
+0.0
+1
+
+SWITCH
+587
+64
+719
+97
+erosion_control
+erosion_control
+0
+1
+-1000
+
+SWITCH
+588
+100
+719
+133
+gas_regulation
+gas_regulation
+0
+1
+-1000
+
+SWITCH
+588
+136
+719
+169
+microclimate_regulation
+microclimate_regulation
+0
+1
+-1000
+
+SWITCH
+588
+172
+719
+205
+nutrient_cycling
+nutrient_cycling
+0
+1
+-1000
+
+SWITCH
+588
+207
+719
+240
+pollination
+pollination
+0
+1
+-1000
+
+SWITCH
+589
+242
+719
+275
+soil_formation
+soil_formation
+0
+1
+-1000
+
+SWITCH
+589
+277
+720
+310
+refugia
+refugia
+0
+1
+-1000
+
+SWITCH
+589
+313
+721
+346
+water_regulation
+water_regulation
+0
+1
+-1000
+
+SWITCH
+590
+348
+721
+381
+waste_treatment
+waste_treatment
+0
+1
+-1000
+
+SWITCH
+742
+62
+873
+95
+food_production
+food_production
+0
+1
+-1000
+
+SWITCH
+743
+97
+873
+130
+genetic_resources
+genetic_resources
+0
+1
+-1000
+
+SWITCH
+742
+133
+874
+166
+raw_materials
+raw_materials
+0
+1
+-1000
+
+SWITCH
+742
+169
+874
+202
+water_supply
+water_supply
+0
+1
+-1000
+
+SWITCH
+744
+240
+872
+273
+cultural_use
+cultural_use
+0
+1
+-1000
+
+SLIDER
+744
+276
+872
+309
+usage_level
+usage_level
+0
+1
+0.7
+0.1
+1
+NIL
+HORIZONTAL
+
+SWITCH
+743
+312
+873
+345
+recreation
+recreation
+0
+1
+-1000
+
+SLIDER
+744
+347
+873
+380
+satisfaction_level
+satisfaction_level
+0
+1
+0.5
+0.1
+1
+NIL
+HORIZONTAL
+
+PLOT
+566
+392
+984
+595
+Ecosystem Services Value Change
+ticks
+(%)
+0.0
+10.0
+-10.0
+10.0
+true
+true
+"" ""
+PENS
+"regulating" 1.0 0 -14835848 true "" "plot regulating"
+"provisioning" 1.0 0 -955883 true "" "plot provisioning"
+"cultural" 1.0 0 -7500403 true "" "plot cultural"
+
+@#$#@#$#@
+## WHAT IS IT?
+
+(a general understanding of what the model is trying to show or explain)
+
+## HOW IT WORKS
+
+(what rules the agents use to create the overall behavior of the model)
+
+## HOW TO USE IT
+
+(how to use the model, including a description of each of the items in the Interface tab)
+
+## THINGS TO NOTICE
+
+(suggested things for the user to notice while running the model)
+
+## THINGS TO TRY
+
+(suggested things for the user to try to do (move sliders, switches, etc.) with the model)
+
+## EXTENDING THE MODEL
+
+(suggested things to add or change in the Code tab to make the model more complicated, detailed, accurate, etc.)
+
+## NETLOGO FEATURES
+
+(interesting or unusual features of NetLogo that the model uses, particularly in the Code tab; or where workarounds were needed for missing features)
+
+## RELATED MODELS
+
+(models in the NetLogo Models Library and elsewhere which are of related interest)
+
+## CREDITS AND REFERENCES
+
+(a reference to the model's URL on the web if it has one, as well as any other necessary credits, citations, and links)
+@#$#@#$#@
+default
+true
+0
+Polygon -7500403 true true 150 5 40 250 150 205 260 250
+
+airplane
+true
+0
+Polygon -7500403 true true 150 0 135 15 120 60 120 105 15 165 15 195 120 180 135 240 105 270 120 285 150 270 180 285 210 270 165 240 180 180 285 195 285 165 180 105 180 60 165 15
+
+arrow
+true
+0
+Polygon -7500403 true true 150 0 0 150 105 150 105 293 195 293 195 150 300 150
+
+box
+false
+0
+Polygon -7500403 true true 150 285 285 225 285 75 150 135
+Polygon -7500403 true true 150 135 15 75 150 15 285 75
+Polygon -7500403 true true 15 75 15 225 150 285 150 135
+Line -16777216 false 150 285 150 135
+Line -16777216 false 150 135 15 75
+Line -16777216 false 150 135 285 75
+
+bug
+true
+0
+Circle -7500403 true true 96 182 108
+Circle -7500403 true true 110 127 80
+Circle -7500403 true true 110 75 80
+Line -7500403 true 150 100 80 30
+Line -7500403 true 150 100 220 30
+
+butterfly
+true
+0
+Polygon -7500403 true true 150 165 209 199 225 225 225 255 195 270 165 255 150 240
+Polygon -7500403 true true 150 165 89 198 75 225 75 255 105 270 135 255 150 240
+Polygon -7500403 true true 139 148 100 105 55 90 25 90 10 105 10 135 25 180 40 195 85 194 139 163
+Polygon -7500403 true true 162 150 200 105 245 90 275 90 290 105 290 135 275 180 260 195 215 195 162 165
+Polygon -16777216 true false 150 255 135 225 120 150 135 120 150 105 165 120 180 150 165 225
+Circle -16777216 true false 135 90 30
+Line -16777216 false 150 105 195 60
+Line -16777216 false 150 105 105 60
+
+car
+false
+0
+Polygon -7500403 true true 300 180 279 164 261 144 240 135 226 132 213 106 203 84 185 63 159 50 135 50 75 60 0 150 0 165 0 225 300 225 300 180
+Circle -16777216 true false 180 180 90
+Circle -16777216 true false 30 180 90
+Polygon -16777216 true false 162 80 132 78 134 135 209 135 194 105 189 96 180 89
+Circle -7500403 true true 47 195 58
+Circle -7500403 true true 195 195 58
+
+circle
+false
+0
+Circle -7500403 true true 0 0 300
+
+circle 2
+false
+0
+Circle -7500403 true true 0 0 300
+Circle -16777216 true false 30 30 240
+
+cow
+false
+0
+Polygon -7500403 true true 200 193 197 249 179 249 177 196 166 187 140 189 93 191 78 179 72 211 49 209 48 181 37 149 25 120 25 89 45 72 103 84 179 75 198 76 252 64 272 81 293 103 285 121 255 121 242 118 224 167
+Polygon -7500403 true true 73 210 86 251 62 249 48 208
+Polygon -7500403 true true 25 114 16 195 9 204 23 213 25 200 39 123
+
+cylinder
+false
+0
+Circle -7500403 true true 0 0 300
+
+dot
+false
+0
+Circle -7500403 true true 90 90 120
+
+face happy
+false
+0
+Circle -7500403 true true 8 8 285
+Circle -16777216 true false 60 75 60
+Circle -16777216 true false 180 75 60
+Polygon -16777216 true false 150 255 90 239 62 213 47 191 67 179 90 203 109 218 150 225 192 218 210 203 227 181 251 194 236 217 212 240
+
+face neutral
+false
+0
+Circle -7500403 true true 8 7 285
+Circle -16777216 true false 60 75 60
+Circle -16777216 true false 180 75 60
+Rectangle -16777216 true false 60 195 240 225
+
+face sad
+false
+0
+Circle -7500403 true true 8 8 285
+Circle -16777216 true false 60 75 60
+Circle -16777216 true false 180 75 60
+Polygon -16777216 true false 150 168 90 184 62 210 47 232 67 244 90 220 109 205 150 198 192 205 210 220 227 242 251 229 236 206 212 183
+
+fish
+false
+0
+Polygon -1 true false 44 131 21 87 15 86 0 120 15 150 0 180 13 214 20 212 45 166
+Polygon -1 true false 135 195 119 235 95 218 76 210 46 204 60 165
+Polygon -1 true false 75 45 83 77 71 103 86 114 166 78 135 60
+Polygon -7500403 true true 30 136 151 77 226 81 280 119 292 146 292 160 287 170 270 195 195 210 151 212 30 166
+Circle -16777216 true false 215 106 30
+
+flag
+false
+0
+Rectangle -7500403 true true 60 15 75 300
+Polygon -7500403 true true 90 150 270 90 90 30
+Line -7500403 true 75 135 90 135
+Line -7500403 true 75 45 90 45
+
+flower
+false
+0
+Polygon -10899396 true false 135 120 165 165 180 210 180 240 150 300 165 300 195 240 195 195 165 135
+Circle -7500403 true true 85 132 38
+Circle -7500403 true true 130 147 38
+Circle -7500403 true true 192 85 38
+Circle -7500403 true true 85 40 38
+Circle -7500403 true true 177 40 38
+Circle -7500403 true true 177 132 38
+Circle -7500403 true true 70 85 38
+Circle -7500403 true true 130 25 38
+Circle -7500403 true true 96 51 108
+Circle -16777216 true false 113 68 74
+Polygon -10899396 true false 189 233 219 188 249 173 279 188 234 218
+Polygon -10899396 true false 180 255 150 210 105 210 75 240 135 240
+
+house
+false
+0
+Rectangle -7500403 true true 45 120 255 285
+Rectangle -16777216 true false 120 210 180 285
+Polygon -7500403 true true 15 120 150 15 285 120
+Line -16777216 false 30 120 270 120
+
+leaf
+false
+0
+Polygon -7500403 true true 150 210 135 195 120 210 60 210 30 195 60 180 60 165 15 135 30 120 15 105 40 104 45 90 60 90 90 105 105 120 120 120 105 60 120 60 135 30 150 15 165 30 180 60 195 60 180 120 195 120 210 105 240 90 255 90 263 104 285 105 270 120 285 135 240 165 240 180 270 195 240 210 180 210 165 195
+Polygon -7500403 true true 135 195 135 240 120 255 105 255 105 285 135 285 165 240 165 195
+
+line
+true
+0
+Line -7500403 true 150 0 150 300
+
+line half
+true
+0
+Line -7500403 true 150 0 150 150
+
+pentagon
+false
+0
+Polygon -7500403 true true 150 15 15 120 60 285 240 285 285 120
+
+person
+false
+0
+Circle -7500403 true true 110 5 80
+Polygon -7500403 true true 105 90 120 195 90 285 105 300 135 300 150 225 165 300 195 300 210 285 180 195 195 90
+Rectangle -7500403 true true 127 79 172 94
+Polygon -7500403 true true 195 90 240 150 225 180 165 105
+Polygon -7500403 true true 105 90 60 150 75 180 135 105
+
+plant
+false
+0
+Rectangle -7500403 true true 135 90 165 300
+Polygon -7500403 true true 135 255 90 210 45 195 75 255 135 285
+Polygon -7500403 true true 165 255 210 210 255 195 225 255 165 285
+Polygon -7500403 true true 135 180 90 135 45 120 75 180 135 210
+Polygon -7500403 true true 165 180 165 210 225 180 255 120 210 135
+Polygon -7500403 true true 135 105 90 60 45 45 75 105 135 135
+Polygon -7500403 true true 165 105 165 135 225 105 255 45 210 60
+Polygon -7500403 true true 135 90 120 45 150 15 180 45 165 90
+
+sheep
+false
+15
+Circle -1 true true 203 65 88
+Circle -1 true true 70 65 162
+Circle -1 true true 150 105 120
+Polygon -7500403 true false 218 120 240 165 255 165 278 120
+Circle -7500403 true false 214 72 67
+Rectangle -1 true true 164 223 179 298
+Polygon -1 true true 45 285 30 285 30 240 15 195 45 210
+Circle -1 true true 3 83 150
+Rectangle -1 true true 65 221 80 296
+Polygon -1 true true 195 285 210 285 210 240 240 210 195 210
+Polygon -7500403 true false 276 85 285 105 302 99 294 83
+Polygon -7500403 true false 219 85 210 105 193 99 201 83
+
+square
+false
+0
+Rectangle -7500403 true true 30 30 270 270
+
+square 2
+false
+0
+Rectangle -7500403 true true 30 30 270 270
+Rectangle -16777216 true false 60 60 240 240
+
+star
+false
+0
+Polygon -7500403 true true 151 1 185 108 298 108 207 175 242 282 151 216 59 282 94 175 3 108 116 108
+
+target
+false
+0
+Circle -7500403 true true 0 0 300
+Circle -16777216 true false 30 30 240
+Circle -7500403 true true 60 60 180
+Circle -16777216 true false 90 90 120
+Circle -7500403 true true 120 120 60
+
+tree
+false
+0
+Circle -7500403 true true 118 3 94
+Rectangle -6459832 true false 120 195 180 300
+Circle -7500403 true true 65 21 108
+Circle -7500403 true true 116 41 127
+Circle -7500403 true true 45 90 120
+Circle -7500403 true true 104 74 152
+
+triangle
+false
+0
+Polygon -7500403 true true 150 30 15 255 285 255
+
+triangle 2
+false
+0
+Polygon -7500403 true true 150 30 15 255 285 255
+Polygon -16777216 true false 151 99 225 223 75 224
+
+truck
+false
+0
+Rectangle -7500403 true true 4 45 195 187
+Polygon -7500403 true true 296 193 296 150 259 134 244 104 208 104 207 194
+Rectangle -1 true false 195 60 195 105
+Polygon -16777216 true false 238 112 252 141 219 141 218 112
+Circle -16777216 true false 234 174 42
+Rectangle -7500403 true true 181 185 214 194
+Circle -16777216 true false 144 174 42
+Circle -16777216 true false 24 174 42
+Circle -7500403 false true 24 174 42
+Circle -7500403 false true 144 174 42
+Circle -7500403 false true 234 174 42
+
+turtle
+true
+0
+Polygon -10899396 true false 215 204 240 233 246 254 228 266 215 252 193 210
+Polygon -10899396 true false 195 90 225 75 245 75 260 89 269 108 261 124 240 105 225 105 210 105
+Polygon -10899396 true false 105 90 75 75 55 75 40 89 31 108 39 124 60 105 75 105 90 105
+Polygon -10899396 true false 132 85 134 64 107 51 108 17 150 2 192 18 192 52 169 65 172 87
+Polygon -10899396 true false 85 204 60 233 54 254 72 266 85 252 107 210
+Polygon -7500403 true true 119 75 179 75 209 101 224 135 220 225 175 261 128 261 81 224 74 135 88 99
+
+wheel
+false
+0
+Circle -7500403 true true 3 3 294
+Circle -16777216 true false 30 30 240
+Line -7500403 true 150 285 150 15
+Line -7500403 true 15 150 285 150
+Circle -7500403 true true 120 120 60
+Line -7500403 true 216 40 79 269
+Line -7500403 true 40 84 269 221
+Line -7500403 true 40 216 269 79
+Line -7500403 true 84 40 221 269
+
+wolf
+false
+0
+Polygon -16777216 true false 253 133 245 131 245 133
+Polygon -7500403 true true 2 194 13 197 30 191 38 193 38 205 20 226 20 257 27 265 38 266 40 260 31 253 31 230 60 206 68 198 75 209 66 228 65 243 82 261 84 268 100 267 103 261 77 239 79 231 100 207 98 196 119 201 143 202 160 195 166 210 172 213 173 238 167 251 160 248 154 265 169 264 178 247 186 240 198 260 200 271 217 271 219 262 207 258 195 230 192 198 210 184 227 164 242 144 259 145 284 151 277 141 293 140 299 134 297 127 273 119 270 105
+Polygon -7500403 true true -1 195 14 180 36 166 40 153 53 140 82 131 134 133 159 126 188 115 227 108 236 102 238 98 268 86 269 92 281 87 269 103 269 113
+
+x
+false
+0
+Polygon -7500403 true true 270 75 225 30 30 225 75 270
+Polygon -7500403 true true 30 75 75 30 270 225 225 270
+@#$#@#$#@
+NetLogo 3D 6.4.0
+@#$#@#$#@
+need-to-manually-make-preview-for-this-model
+@#$#@#$#@
+@#$#@#$#@
+<experiments>
+  <experiment name="ES Do nothing - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="ES Urban agri - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="ES Meander rest - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="ES Ret basins - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="ES Green enh - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="ES Meander rest + Urban - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="ES Meander rest + Green - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="ES Ret basins + Green - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="ES Ret basins + Urban - No Dis" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="1"/>
+    <metric>regulating</metric>
+    <metric>provisioning</metric>
+    <metric>cultural</metric>
+    <enumeratedValueSet variable="NBS_attractiveness">
+      <value value="0.5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="green_enhancement">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="soil_temperature">
+      <value value="298"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="urban_agriculture">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="retention_basins">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meander_restoration">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="flood">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+</experiments>
+@#$#@#$#@
+@#$#@#$#@
+default
+0.0
+-0.2 0 0.0 1.0
+0.0 1 1.0 0.0
+0.2 0 0.0 1.0
+link direction
+true
+0
+Line -7500403 true 150 150 90 180
+Line -7500403 true 150 150 210 180
+@#$#@#$#@
+0
+@#$#@#$#@
